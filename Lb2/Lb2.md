@@ -112,96 +112,126 @@ end
 
 ## Внесені зміни у вихідну логіку моделі, на власний розсуд:
 
-Для можливого вдосконалення логіки моделі було обрано одну з проблем, описаних у попередній лабораторній роботі, а саме: замкненість світу, представлена у формі тору. У цьому контексті були змінені налаштування світу, зокрема, вимкнено параметри, які з'єднують протилежні краї світу: `World wraps horizontally / vertically`.`.
+Для можливого вдосконалення логіки моделі було обрано одну з проблем, описаних у попередній лабораторній роботі, а саме: нереалістична поведінка автомобілів при наближені до перешкод. Автомобілі гальмували моментально безпосередньо перед автомобілем попереду. Для цього було змінено процедуру **`set-speed`**.
 
-![world settings](world_settings.png)
-
-Далі було створено процедуру, яка повертає **`true`** коли машина знаходиться на краю світу (тільки для своєї дороги), в інших випадках дорівнює **`false`**:
+На початку було визначено локальні змінні для нової процедури
+- let my-x xcor: зберігає поточну x‑координату черепахи в локальну змінну my-x для подальших обчислень.
+- let my-y ycor: зберігає поточну y‑координату в my-y.
+- let my-up up-car?: зчитує прапорець напрямку (наприклад, чи рухається черепаха "вгору") в my-up; використовується для вибору осі пошуку лідера.
+- let my-who who: зберігає унікальний ідентифікатор черепахи в my-who, щоб виключити себе з пошуку інших черепах.
+- let tol 0.5: встановлює допуск tol для визначення «смуги» — наскільки близько по перпендикулярній координаті має бути інша черепаха, щоб вважатися в тій же смузі.
+- let leader nobody: ініціалізує змінну leader як nobody — поки що лідер не знайдений.
+- let gap 9999: ініціалізує gap великим значенням (маркер «невідомо/дуже далеко»), потім при знаходженні лідера буде перезаписано.
 
 ``` NetLogo
-to-report is-end-of-world
-    (ifelse 
-        ( pxcor = max-pxcor and up-car? = false ) [ report true ]
-        ( pycor = min-pycor and up-car? = true ) [ report true ]
-        [ report false ])
-end
+let my-x xcor
+  let my-y ycor
+  let my-up up-car?
+  let my-who who
+
+  let tol 0.5
+  let leader nobody
+  let gap 9999
 ```
-
-Наступним кроком є видалення тих автомобілів, що покидають межі світу моделі. Для цього були внесені зміни до основної процедури ***`to go`***, а саме було додано декілька інструкцій при опитуванні автомобілів:
-
+Далі було створено 
 ``` NetLogo
-to go
-    ...
-    ask turtles [
-        set-car-speed
-        fd speed
-        record-data
-        set-car-color
-        if is-end-of-world [                 ;; if it's the end of the world
-            set dead-number dead-number + 1  ;; increase the global counter of dead turtles and 
-            die                              ;; kill the turtle
-        ]
+ if my-up [
+    let same-lane turtles with [ abs (xcor - my-x) < tol and up-car? = my-up and who != my-who ] ;; note: if you have different var name, keep original
+    let ahead same-lane with [ ycor < my-y ]
+    if any? ahead [
+      set leader min-one-of ahead [ my-y - ycor ]
+      set gap ((my-y - [ycor] of leader) / grid-y-inc)
     ]
-    ...
-end
-```
-
-При опитуванні чергової машини визначається, чи знаходиться вона на краю світу. Якщо так, то ми збільшуємо кількість видалених автомобілів для подальшого їх "відродження" і видаляємо черговий автомобіль. В іншому випадку процес триває в звичайному режимі.
-
-Крім того, було додано кілька нових процедур: ***`to relife-cars [road]`***, ***`to put-on-start-empty-road [road]`***, ***`to-report get-start-empty-road`***.
-
-Процедура ***`to-report get-start-empty-road`*** має схожу функцію з ***`to put-on-empty-road [road]`***, яка шукає та розміщує автомобіль на вільному місці на дорозі. Однак вона відрізняється тим, що шукає вільне місце на початку кожної дороги і повертає його. Якщо вільного місця немає, повертається **`nobody`**.
-
-``` NetLogo
-to-report get-start-empty-road 
-    report one-of roads with [not any? turtles-on self and (pxcor = min-pxcor or pycor = max-pycor)]
-end
-```
-Ця процедура використовується в ***`to go`*** перед опитуванням автомобілів. У ній створюється локальна змінна **`start-dead-number`**, яка зберігає кількість видалених автомобілів на попередньому етапі моделювання. Далі в циклі відбувається створення нових автомобілів. Якщо вільних місць немає, нові машини не створюються, і цикл припиняється. Автомобілі, що залишилися, будуть створені при можливості на наступному етапі моделювання.
-
-``` NetLogo
-to go
-    let start-dead-number dead-number
-    repeat start-dead-number 
-    [  
-        let empty-road get-start-empty-road 
-        ifelse empty-road != nobody
-        [
-            create-turtles 1 [
-                relife-cars empty-road
-                set-car-color
-            ]
-            set dead-number dead-number - 1
-        ]
-       
+  ]
+  if not my-up [
+    let same-lane turtles with [ abs (ycor - my-y) < tol and up-car? = my-up and who != my-who ]
+    let ahead same-lane with [ xcor > my-x ]
+    if any? ahead [
+      set leader min-one-of ahead [ xcor - my-x ]
+      set gap (([xcor] of leader - my-x) / grid-x-inc)
     ]
-end
+  ]
 ```
-
-Процедура ***`to relife-cars [road]`*** майже повністю відповідає ***`to setup-cars`***, за виключенням, що для розміщення автомобілів використовується ***`to put-on-empty-road [road]`*** та відсумня перевірка для перехресть. Змінна **`road`** отримується за допомогою ***`to-report get-start-empty-road`***.
-
-``` NetLogo
-to relife-cars [road]
-    set speed 0
-    set wait-time 0
-    
-    put-on-start-empty-road road
-    
-    ifelse (floor((pxcor + max-pxcor - floor(grid-x-inc - 1)) mod grid-x-inc) = 0)
-    [ set up-car? true ]
-    [ set up-car? false ]
-    
-    ifelse up-car?
-    [ set heading 180 ]
-    [ set heading 90 ]
-end
-```
+Далі було описано функцію пошуку **`лідера`** в смузі поточної машини та обчислює відстань до неї (**`gap`**)
 
 ``` NetLogo
-to put-on-start-empty-road [road]
-  move-to road
-end
+ ifelse leader = nobody [
+    ;; Немає лідера — набираємо до максимальної дозволеної швидкості
+    speed-up
+  ]
+  [
+    let leader-speed [speed] of leader
 ```
+Наступним кроком перевіряється чи є лідер у поточної машини, за його  відстності встановлюється максимально дозволена швидкість.
+
+``` NetLogo
+    let desired-gap 1.0            ;; мінімальний зазор в клітинах (зупинка тут)
+    let safe-distance 0.1         ;; починаємо гальмувати, коли gap <= safe-distance
+    let brake-start 10.0          ;; (запас) відстань для поступового під'їзду до зупиненого лідера
+    let approach-k 1.0            ;; коефіцієнт для під'їзду (коли лідер стоїть, але далеко)
+    let max-approach-speed speed-limit ;; максимальна швидкість при під'їзді
+    let brake-strength 2.0        ;; наскільки сильніше можемо гальмувати при малій відстані (множник)
+
+    ;; Обчислюємо цільову швидкість (target-speed)
+    let target-speed 0
+```
+Вводимо налаштувальні параметри для регулювання відстання початку гальмування, інтенсивності гальмування, коефіцієнт під'їзду, максимальну швидкість при під'їзді.
+
+``` NetLogo
+    if leader-speed > 0 [
+      ;; Лідер рухається
+      ifelse gap > safe-distance [
+        ;; Достатній зазор — підлаштовуємося під лідера і можемо набирати до speed-limit
+        set target-speed min (list speed-limit (leader-speed * 0.95 + (speed-limit - leader-speed) * 0.1))
+      ] [
+        ;; Менший зазор — починаємо гальмувати пропорційно до відстані
+        ;; Коли gap == safe-distance => target близький до leader-speed*0.95
+        ;; Коли gap -> desired-gap => target -> 0 або до дуже малої швидкості
+        let denom max (list 0.0001 (safe-distance - desired-gap))
+        let factor max (list 0 (min (list 1 ((gap - desired-gap) / denom))))
+        ;; підлаштовуємося під лідера, але зменшуємо пропорційно factor
+        set target-speed max (list 0 (leader-speed * 0.95 * factor))
+      ]
+    ]
+
+    if leader-speed = 0 [
+      ;; Лідер стоїть — визначаємо фактор гальмування залежно від gap
+      ifelse gap > brake-start [
+        ;; Далеко від зупиненого лідера — рухаємося з під'їзною швидкістю (помірно швидко)
+        set target-speed min (list max-approach-speed (approach-k * (gap - desired-gap)))
+      ] [
+        ;; У зоні гальмування або дуже близько — лінійно зменшуємо швидкість до 0
+        let denom max (list 0.0001 (brake-start - desired-gap))
+        let braking-factor max (list 0 (min (list 1 ((gap - desired-gap) / denom))))
+        set target-speed max (list 0 (max-approach-speed * braking-factor))
+      ]
+    ]
+```
+Далі прораховуємо випадки коли лідер рухається або стоїть. Якщо лідер рухається, перевіряється чи достатня відстань для руху без обмеження. Якщо лідер знаходиться близько до поточної машини починається процес зниженняя швидкості до швидкості лідера. У випадку коли лідер стоїть перевіряється чи знаходиться машина в зоні гальмування. Якщо поточна машина знаходиться в зоні гальмування перед лідером - машина почина гальмувати.
+
+``` NetLogo
+      if speed > target-speed [
+      ;; Розрахунок динамічного темпу гальмування:
+      let braking-factor 1.0
+      if leader-speed = 0 [
+        let denom max (list 0.0001 (brake-start - desired-gap))
+        set braking-factor max (list 0 (min (list 1 ((gap - desired-gap) / denom))))
+      ] 
+      if leader-speed > 0 and gap <= safe-distance [
+        let denom2 max (list 0.0001 (safe-distance - desired-gap))
+        let factor2 max (list 0 (min (list 1 ((gap - desired-gap) / denom2))))
+        set braking-factor factor2
+      ]
+      ;; decel-rate: базове acceleration помножене на коефіцієнт, що зростає коли braking-factor малий
+      let decel-rate acceleration * (1 + (1 - braking-factor) * brake-strength)
+      set speed max (list target-speed (speed - decel-rate))
+    ]
+    if speed < target-speed [
+      ;; Прискорюємося звичайним acceleration
+      set speed min (list target-speed (speed + acceleration))
+    ]
+```
+В останньому блоці була описана функція для плавного прискорення та динамічного гальмування. Розрахрвується інтенсивність гальмування та прискорення до лідера.
 
 ![Скріншот моделі в процесі симуляції](result.png)
 
